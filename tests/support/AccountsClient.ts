@@ -42,4 +42,16 @@ export class AccountsClient {
     }
     return (await response.json()) as Account;
   }
+
+  // Test setup helper: an account that already holds the given balance
+  async createFunded(balanceMinor: number, overrides: Partial<AccountInput> = {}): Promise<Account> {
+    const account = await this.createValid(overrides);
+    if (balanceMinor > 0) {
+      const response = await this.deposit(account.id, { amount_minor: balanceMinor });
+      if (response.status() !== 201) {
+        throw new Error(`Setup failed: deposit returned ${response.status()} ${await response.text()}`);
+      }
+    }
+    return { ...account, balance_minor: balanceMinor };
+  }
 }

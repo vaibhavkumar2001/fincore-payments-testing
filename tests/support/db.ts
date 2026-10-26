@@ -24,3 +24,39 @@ export async function countAccountsByOwner(db: Pool, ownerName: string): Promise
   );
   return Number(result.rows[0].total);
 }
+
+
+export interface PaymentRecord {
+  id: string;
+  source_account_id: string;
+  destination_account_id: string;
+  amount_minor: string;
+  currency: string;
+  status: string;
+}
+
+export async function findPayment(db: Pool, id: string): Promise<PaymentRecord | undefined> {
+  const result = await db.query<PaymentRecord>(
+    `SELECT id, source_account_id, destination_account_id, amount_minor::text AS amount_minor, currency, status
+     FROM payments WHERE id = $1`,
+    [id]
+  );
+  return result.rows[0];
+}
+
+// Each test uses its own source account, so this count is exact for that test
+export async function countPaymentsFromSource(db: Pool, sourceAccountId: string): Promise<number> {
+  const result = await db.query<{ total: string }>(
+    'SELECT count(*)::text AS total FROM payments WHERE source_account_id = $1',
+    [sourceAccountId]
+  );
+  return Number(result.rows[0].total);
+}
+
+export async function countIdempotencyKeys(db: Pool, key: string): Promise<number> {
+  const result = await db.query<{ total: string }>(
+    'SELECT count(*)::text AS total FROM idempotency_keys WHERE key = $1',
+    [key]
+  );
+  return Number(result.rows[0].total);
+}

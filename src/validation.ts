@@ -31,3 +31,29 @@ export function formatIssues(error: z.ZodError) {
     message: issue.message,
   }));
 }
+
+
+// Largest single payment, in minor units
+export const MAX_PAYMENT_MINOR = 100_000_000;
+
+// Idempotency keys: 8 to 128 characters, letters, digits, dash and underscore only
+const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
+
+export function isValidIdempotencyKey(value: string): boolean {
+  return IDEMPOTENCY_KEY_PATTERN.test(value);
+}
+
+const uuidField = z.string().refine(isUuid, { message: 'must be a UUID' });
+
+export const createPaymentSchema = z
+  .object({
+    source_account_id: uuidField,
+    destination_account_id: uuidField,
+    amount_minor: z.number().int().positive().max(MAX_PAYMENT_MINOR),
+    currency: z.enum(SUPPORTED_CURRENCIES),
+  })
+  .strict()
+  .refine((data) => data.source_account_id.toLowerCase() !== data.destination_account_id.toLowerCase(), {
+    message: 'source and destination accounts must be different',
+    path: ['destination_account_id'],
+  });

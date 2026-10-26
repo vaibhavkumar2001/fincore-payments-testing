@@ -3,9 +3,12 @@ import type { NextFunction, Request, Response } from 'express';
 import { pool } from './db';
 import { sendError } from './http';
 import { accountsRouter } from './routes/accounts';
+import { paymentsRouter } from './routes/payments';
 
 export function createApp() {
   const app = express();
+
+  // Must come before the routers, otherwise req.body stays undefined
   app.use(express.json());
 
   // Health check: confirms the API is up and can reach the database
@@ -19,6 +22,7 @@ export function createApp() {
   });
 
   app.use('/accounts', accountsRouter);
+  app.use('/payments', paymentsRouter);
 
   app.use((_req, res) => {
     sendError(res, 404, 'route_not_found', 'Route not found');

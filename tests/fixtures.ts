@@ -1,9 +1,11 @@
 import { test as base, expect } from '@playwright/test';
 import { Pool } from 'pg';
 import { AccountsClient } from './support/AccountsClient';
+import { PaymentsClient } from './support/PaymentsClient';
 
 interface TestFixtures {
   accounts: AccountsClient;
+  payments: PaymentsClient;
 }
 
 interface WorkerFixtures {
@@ -26,6 +28,10 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
   accounts: async ({ request }, use) => {
     await use(new AccountsClient(request));
+  },
+
+  payments: async ({ request }, use) => {
+    await use(new PaymentsClient(request));
   },
 });
 
