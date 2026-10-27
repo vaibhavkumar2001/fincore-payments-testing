@@ -1,37 +1,33 @@
-# Build Log
+## Day 4: Capture, void and refunds
 
-Short notes on decisions, bugs and lessons while building FinCore.
-Format for each entry: what happened, why, and what I would do again or differently.
+### 1. Idempotency was moved into a shared helper, and the tests protected the refactor
 
-## Day 2: Accounts and deposits
+- **What happened:** Refund also needs idempotency, so I extracted the claim-key, do-work, store-response logic from the payment creation route into `runIdempotent`.
+- **Result:** All 72 existing tests passed without changes after the refactor.
+- **Lesson:** A strong test suite is what makes refactoring safe.
 
-### 1. A read-modify-write deposit loses money under parallel requests
+### 2. Refunds need an idempotency key, capture and void do not
 
-- **What happened:** I wrote a test that sends ten deposits of 100 at the same time and expects a balance of 1000. To check that the test really detects races, I temporarily replaced the deposit with "read the balance, wait, write balance + amount". The test failed with `Expected: 1000, Received: 100`.
-- **Why:** Each request read the same old balance, so each one overwrote the others' updates (a lost update).
-- **Fix:** The deposit is one atomic statement: `UPDATE accounts SET balance_minor = balance_minor + $1 WHERE id = $2`. The database applies the addition, so parallel requests cannot overwrite each other.
-- **Lesson:** Never compute a new balance in application code from a value you read earlier. Use an atomic update or a row lock.
+- **Reasoning:** A second capture or void is stopped by the state machine (`409`). A retried partial refund is not stopped by state, because the payment is still refundable, so it would be applied twice.
+- **Lesson:** Idempotency can come from the state machine or from a key. Choose per operation.
 
-### 2. Clients must not be able to set server-owned fields
+### 3. Lock rows in a fixed order to avoid deadlocks
 
-- **What happened:** `POST /accounts` could have silently accepted `balance_minor` or `id` from the client (mass assignment).
-- **Fix:** The Zod schemas use `strict()`, so unknown fields are rejected with `400`. Tests cover a client-supplied balance and a client-supplied id.
-- **Lesson:** Rejecting unknown fields is safer than ignoring them, because it makes misuse visible.
+- **Design:** Both accounts are locked with `ORDER BY id FOR UPDATE`.
+- **Verification:** I temporarily locked the source first and the destination second, with a small delay. The test with ten parallel captures in opposite directions failed. With the fixed order it passes.
+- **Lesson:** Two transactions that lock the same rows in opposite order can deadlock.
 
-### 3. Assert on the database, not only on the API response
+### 4. The state machine is tested as a table
 
-- **What happened:** Tests check the database after each call: the row exists after a create, the balance is exact after a deposit, and no row exists after a rejected request.
-- **Detail:** `BIGINT` is read as text (`balance_minor::text`) so large values never lose precision in assertions.
-- **Lesson:** An API can return the right response while storing the wrong data. The database is the source of truth.
+- **Design:** Every state is combined with every action (5 states x 3 actions = 15 tests). An illegal transition must return `409` and change nothing (payment row and both balances).
+- **Lesson:** Table-driven tests cover a whole state machine without writing 15 different tests by hand.
 
-### 4. Concurrency tests assert outcomes, not timing
+### 5. Money conservation and the "funds are not held" limit
 
-- **What happened:** The parallel deposit test does not sleep or depend on speed. It sends ten requests with `Promise.all` and asserts that all ten returned `201` and the final balance is exactly 1000.
-- **Lesson:** Tests that depend on timing are flaky. Tests that assert on counts and final state are deterministic.
+- **Tests:** The sum of two balances is the same before and after a capture and after refunds.
+- **Known limit:** Authorization does not hold funds, so two payments of 800 can both be authorized on a balance of 1000. The second capture fails with `insufficient_funds`, and a test documents this.
 
-### Decisions made today
+### 6. Race bugs are timing dependent
 
-- Money is stored as integer minor units (`BIGINT`), never as floats.
-- A single deposit is capped at 100,000,000 minor units, and the boundary values (the cap and the cap + 1) are tested.
-- Every error uses the same shape: `{ "error": { "code", "message", "details" } }`.
-- Each test creates its own account, so tests are independent and safe to run in parallel.
+- **What happened:** When I removed the row lock from capture, the capture-vs-void test caught it, but the ten-parallel-captures test did not, because requests finish so fast that the race window is tiny.
+- **Next step:** Day 7 bug toggles will add a small delay to make such races reproducible.

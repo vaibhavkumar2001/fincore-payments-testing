@@ -57,3 +57,10 @@ export const createPaymentSchema = z
     message: 'source and destination accounts must be different',
     path: ['destination_account_id'],
   });
+
+
+export const refundSchema = z
+  .object({
+    amount_minor: z.number().int().positive().max(MAX_PAYMENT_MINOR).optional(),
+  })
+  .strict(); 
