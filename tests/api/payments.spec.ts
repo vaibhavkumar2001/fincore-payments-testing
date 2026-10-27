@@ -1,6 +1,7 @@
 import { test, expect } from '../fixtures';
 import { buildPayment, newIdempotencyKey } from '../support/factories';
 import { countPaymentsFromSource, findPayment } from '../support/db';
+import { expectValidationError } from '../support/assertions';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -112,19 +113,25 @@ test.describe('Create payment', () => {
   });
 
   test.describe('validation', () => {
-    const invalidBodies = [
-      { name: 'a missing amount', mutate: (b: Record<string, unknown>) => ({ ...b, amount_minor: undefined }) },
-      { name: 'a zero amount', mutate: (b: Record<string, unknown>) => ({ ...b, amount_minor: 0 }) },
-      { name: 'a negative amount', mutate: (b: Record<string, unknown>) => ({ ...b, amount_minor: -5 }) },
-      { name: 'a decimal amount', mutate: (b: Record<string, unknown>) => ({ ...b, amount_minor: 10.5 }) },
-      { name: 'an amount above the maximum', mutate: (b: Record<string, unknown>) => ({ ...b, amount_minor: 100_000_001 }) },
-      { name: 'an unsupported currency', mutate: (b: Record<string, unknown>) => ({ ...b, currency: 'XYZ' }) },
-      { name: 'a source id that is not a UUID', mutate: (b: Record<string, unknown>) => ({ ...b, source_account_id: 'abc' }) },
-      { name: 'a client-supplied status', mutate: (b: Record<string, unknown>) => ({ ...b, status: 'captured' }) },
-      { name: 'a client-supplied id', mutate: (b: Record<string, unknown>) => ({ ...b, id: 'abc' }) },
+    type Body = Record<string, unknown>;
+    const invalidBodies: {
+      name: string;
+      mutate: (b: Body) => Body;
+      field?: string;
+      unknownKey?: string;
+    }[] = [
+      { name: 'a missing amount', mutate: (b) => ({ ...b, amount_minor: undefined }), field: 'amount_minor' },
+      { name: 'a zero amount', mutate: (b) => ({ ...b, amount_minor: 0 }), field: 'amount_minor' },
+      { name: 'a negative amount', mutate: (b) => ({ ...b, amount_minor: -5 }), field: 'amount_minor' },
+      { name: 'a decimal amount', mutate: (b) => ({ ...b, amount_minor: 10.5 }), field: 'amount_minor' },
+      { name: 'an amount above the maximum', mutate: (b) => ({ ...b, amount_minor: 100_000_001 }), field: 'amount_minor' },
+      { name: 'an unsupported currency', mutate: (b) => ({ ...b, currency: 'XYZ' }), field: 'currency' },
+      { name: 'a source id that is not a UUID', mutate: (b) => ({ ...b, source_account_id: 'abc' }), field: 'source_account_id' },
+      { name: 'a client-supplied status', mutate: (b) => ({ ...b, status: 'captured' }), unknownKey: 'status' },
+      { name: 'a client-supplied id', mutate: (b) => ({ ...b, id: 'abc' }), unknownKey: 'id' },
     ];
 
-    for (const { name, mutate } of invalidBodies) {
+    for (const { name, mutate, field, unknownKey } of invalidBodies) {
       test(`rejects ${name}`, async ({ accounts, payments, db }) => {
         const source = await accounts.createFunded(5000);
         const destination = await accounts.createValid();
@@ -132,8 +139,7 @@ test.describe('Create payment', () => {
 
         const response = await payments.create(body, newIdempotencyKey());
 
-        expect(response.status()).toBe(400);
-        expect((await response.json()).error.code).toBe('validation_error');
+        await expectValidationError(response, { field, unknownKey });
         expect(await countPaymentsFromSource(db, source.id)).toBe(0);
       });
     }
@@ -143,7 +149,7 @@ test.describe('Create payment', () => {
 
       const response = await payments.create(buildPayment(account.id, account.id), newIdempotencyKey());
 
-      expect(response.status()).toBe(400);
+      await expectValidationError(response, { field: 'destination_account_id' });
       expect(await countPaymentsFromSource(db, account.id)).toBe(0);
     });
   });

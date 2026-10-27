@@ -1,6 +1,7 @@
 import { test, expect } from '../fixtures';
 import { buildAccount } from '../support/factories';
 import { countAccountsByOwner, findAccount } from '../support/db';
+import { expectValidationError } from '../support/assertions';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -46,25 +47,24 @@ test.describe('Create account', () => {
     });
   }
 
-  const invalidPayloads = [
-    { name: 'a missing owner_name', body: { currency: 'INR' } },
-    { name: 'an empty owner_name', body: { owner_name: '', currency: 'INR' } },
-    { name: 'a blank owner_name', body: { owner_name: '   ', currency: 'INR' } },
-    { name: 'an owner_name longer than 100 characters', body: { owner_name: 'a'.repeat(101), currency: 'INR' } },
-    { name: 'a missing currency', body: { owner_name: 'Asha Rao' } },
-    { name: 'an unsupported currency', body: { owner_name: 'Asha Rao', currency: 'XYZ' } },
-    { name: 'a lowercase currency', body: { owner_name: 'Asha Rao', currency: 'inr' } },
-    { name: 'a numeric currency', body: { owner_name: 'Asha Rao', currency: 356 } },
-    { name: 'a client-supplied balance', body: { owner_name: 'Asha Rao', currency: 'INR', balance_minor: 1000000 } },
-    { name: 'a client-supplied id', body: { owner_name: 'Asha Rao', currency: 'INR', id: 'abc' } },
+  const invalidPayloads: { name: string; body: unknown; field?: string; unknownKey?: string }[] = [
+    { name: 'a missing owner_name', body: { currency: 'INR' }, field: 'owner_name' },
+    { name: 'an empty owner_name', body: { owner_name: '', currency: 'INR' }, field: 'owner_name' },
+    { name: 'a blank owner_name', body: { owner_name: '   ', currency: 'INR' }, field: 'owner_name' },
+    { name: 'an owner_name longer than 100 characters', body: { owner_name: 'a'.repeat(101), currency: 'INR' }, field: 'owner_name' },
+    { name: 'a missing currency', body: { owner_name: 'Asha Rao' }, field: 'currency' },
+    { name: 'an unsupported currency', body: { owner_name: 'Asha Rao', currency: 'XYZ' }, field: 'currency' },
+    { name: 'a lowercase currency', body: { owner_name: 'Asha Rao', currency: 'inr' }, field: 'currency' },
+    { name: 'a numeric currency', body: { owner_name: 'Asha Rao', currency: 356 }, field: 'currency' },
+    { name: 'a client-supplied balance', body: { owner_name: 'Asha Rao', currency: 'INR', balance_minor: 1000000 }, unknownKey: 'balance_minor' },
+    { name: 'a client-supplied id', body: { owner_name: 'Asha Rao', currency: 'INR', id: 'abc' }, unknownKey: 'id' },
   ];
 
-  for (const { name, body } of invalidPayloads) {
+  for (const { name, body, field, unknownKey } of invalidPayloads) {
     test(`rejects ${name}`, async ({ accounts }) => {
       const response = await accounts.create(body);
 
-      expect(response.status()).toBe(400);
-      expect((await response.json()).error.code).toBe('validation_error');
+      await expectValidationError(response, { field, unknownKey });
     });
   }
 
@@ -74,7 +74,7 @@ test.describe('Create account', () => {
 
     const response = await accounts.create({ owner_name: ownerName, currency: 'INR', balance_minor: 999999 });
 
-    expect(response.status()).toBe(400);
+    await expectValidationError(response, { unknownKey: 'balance_minor' });
     expect(await countAccountsByOwner(db, ownerName)).toBe(0);
   });
 
@@ -89,6 +89,8 @@ test.describe('Create account', () => {
     const response = await accounts.createRaw('[]');
 
     expect(response.status()).toBe(400);
+    // The body must have been parsed (as an array) and then rejected, not silently ignored
+    expect(JSON.stringify((await response.json()).error.details)).toContain('array');
   });
 });
 
